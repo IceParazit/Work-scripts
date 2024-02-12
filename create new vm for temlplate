@@ -1,0 +1,39 @@
+- hosts: localhost
+  gather_facts: no
+  connection: local
+  tasks:
+  - name: Create a virtual machine from a template
+    vmware_guest:
+      hostname: ""
+      username: "{{ vcenter_username }}"
+      password: "{{ vcenter_password }}"
+      validate_certs: no
+      datacenter: 
+      folder: "/Admins/New\ VM"
+      name: "{{ vm_name }}"
+      state: poweredon
+      template: "{{ vcenter_template }}"
+      disk:
+      - size_gb: "{{ vm_disk }}"
+        type: thin
+        datastore: ""
+      hardware:
+        memory_mb: "{{ vcenter_memory_mb }}"
+        num_cpus: 4
+        num_cpu_cores_per_socket: 2
+        memory_reservation_lock: True
+        hotadd_cpu: True
+        hotremove_cpu: True
+        hotadd_memory: True
+      networks:
+      - name: VM Network
+    delegate_to: localhost
+    register: deploy
+  - name: Waits for VM start
+    wait_for:
+     host: 192.168.1.11
+     port: 22
+     delay: 2
+     timeout: 900
+  - pause:
+     seconds: 20
