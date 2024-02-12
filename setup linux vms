@@ -1,0 +1,146 @@
+---
+- hosts: all
+  remote_user: admin-root
+  become: true
+  become_method: sudo
+  vars:
+   pvs_name: /dev/sda5
+   vg_name: ubuntuserver-vg
+  tasks:
+  - name: Wait for automatic system updates
+    shell: "while sudo fuser /var/lib/dpkg/{{ item }} > /dev/null 2>&1; do sleep 1; done;"
+    with_items:
+      - lock
+      - lock-frontend
+  - name: upgrade a server
+    apt:
+      update_cache: yes
+      upgrade: dist
+      autoremove: yes
+  - name: Install a list of packages
+    apt:
+      name: "{{ packages }}"
+      update_cache: yes
+    vars:
+      packages:
+      - htop
+      - tree
+      - unzip
+      - p7zip-rar
+      - p7zip-full
+      - net-tools
+      - open-vm-tools
+      - pwgen
+      - git
+      - vim
+      - apt-transport-https
+      - curl
+      - traceroute
+#     - openjdk-8-jdk  
+  - name: Install python3 pip for ubuntu 20
+    apt:
+      name: "{{ packages }}"
+      update_cache: yes
+    vars:
+      packages:
+      - python3-pip
+    when: ansible_distribution_version == "22.04"
+  - name: Set authorized keys taken from file
+    authorized_key:
+      user: '{{ ansible_ssh_user }}'
+      state: present
+      key: "{{ lookup('file', '../files/ssh_pub/ansible_rsa.pub') }}"
+  - name: Allow admin users to sudo without a password
+    lineinfile:
+     path: /etc/sudoers
+     state: present
+     regexp: '^%sudo'
+     line: '%sudo ALL=(ALL) NOPASSWD: ALL'
+     validate: 'visudo -cf %s'
+     backup: yes
+  - name: Upgrade pip3
+    pip:
+      name:
+        - pip
+        - setuptools
+      state: latest
+      executable: pip
+#  - name: Install python package pip2
+#   pip:
+#      name:
+#        - tldr
+#      executable: pip
+  - name: Change hostname Virtual mashine
+    hostname:
+     name: "{{ vm_name }}"
+  - name: Reset ssh-server
+    shell: /bin/rm /etc/ssh/ssh_host_* && dpkg-reconfigure openssh-server
+  - name: Change IP Ubuntu 22.04
+    replace:
+      path: /etc/netplan/50-cloud-init.yaml
+      regexp: '192.168.1.11'
+      replace: "{{ new_ip_VM }}"
+      backup: yes
+    when: ansible_distribution_version == "22.04"  
+  - name: Change hosts
+    replace:
+      path: /etc/hosts
+      regexp: '192.168.1.11'
+      replace: "{{ new_ip_VM }}"
+  - name: Change hosts
+    replace:
+      path: /etc/hosts
+      regexp: 'ubuntuserver'
+      replace: "{{ vm_name }}" 
+  - name: Create a new primary partition for LVM
+    parted:
+      device: /dev/sda
+      number: 4
+      flags: [ lvm ]
+      state: present
+      part_start: 16GiB
+      label: gpt
+    when: 
+        - vm_disk|int > 16 
+        - ansible_distribution_version == "22.04"  
+  - name: Create VG for ubuntuserver
+    lvg:
+      vg: "{{ vg_name }}" ## Name of Volume group.
+      pvs: "/dev/sda3,/dev/sda4"
+    when: 
+        - vm_disk|int  > 16 
+        - ansible_distribution_version == "22.04"    
+  - name: Extend the logical volume.
+    lvol:
+      vg: "{{ vg_name }}"
+      lv: /dev/ubuntuserver-vg/root
+      size: 100%VG
+    when:  vm_disk|int > 16
+  - name: Create the file system for root part.
+    filesystem:
+      dev: "/dev/{{ vg_name }}/root" ## Full related path of device mapper to be created with creating FS.
+      fstype: ext4
+      resizefs: yes
+    when: vm_disk|int > 16
+  - name: Add rule for ssh
+    ufw:
+      rule: allow
+      src: '{{ item }}'
+      port: 22
+      proto: tcp
+    loop:
+      - 192.168.0.0/22
+  - name: Allow everything and enable UFW
+    ufw:
+      state: enabled
+  - name: Install Docker
+    shell: curl -fsSL https://git.bpmobile.org/public-repos/Public_Scripts/-/raw/master/install_docker.sh | sudo sh -
+    when: Docker_Install|bool
+  - name: Password expired
+    shell: passwd --expire admin-root
+    when: Password_expired|bool 
+  - name: reboot system
+    shell: "sleep 3 && reboot"
+    async: 1
+    poll: 0
+    ignore_errors: true
