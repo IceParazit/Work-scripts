@@ -1,0 +1,305 @@
+#!/bin/bash
+
+jenkins_token=''
+jenkins_job_token=''
+
+Product=$(system_profiler SPHardwareDataType | grep 'Model Name' | awk '{print $3$4}')
+SerialNumber=$(system_profiler SPHardwareDataType | grep Serial | awk '{print $4}')
+os_ver=$(sw_vers -productVersion)
+uname_machine="$(/usr/bin/uname -m)"
+
+list_listnetworkservice=$(networksetup -listnetworkserviceorder |grep -E 'Hardware Port:.*Wi-Fi|Hardware Port:.*Ethernet'|wc -l|tr -d ' ')
+network_type=$(networksetup -listnetworkserviceorder |grep -E 'Hardware Port:.*Wi-Fi|Hardware Port:.*Ethernet'| awk '{print $3}'|sed 's/,//')
+if [[ "$list_listnetworkservice" == 1 ]]; then
+    ip_addr=$(networksetup -getinfo ${network_type} | grep "IP address:" | awk '{print $3}' |head -n1)
+else
+    ip_addr=$(networksetup -getinfo Ethernet | grep -v 'none' | grep "IP address:" | awk '{print $3}' |head -n1)
+    if [[ "${ip_addr}" = "" ]]; then
+        ip_addr=$(networksetup -getinfo Wi-Fi | grep "IP address:" | awk '{print $3}' |head -n1)
+    fi
+fi
+
+ip_addr_short=$(echo ${ip_addr} | cut -f3-4 -d"." | sed 's/\./-/')
+
+#Product prefix
+if [[ "$Product" = "iMac" ]]; then
+    Product='iM'
+fi
+if [[ "$Product" = "MacBookPro" ]]; then
+    Product='MBP'
+fi
+if [[ "$Product" = "MacBookAir" ]]; then
+    Product='MBA'
+fi
+if [[ "$Product" = "MacBook" ]]; then
+    Product='MB'
+fi
+if [[ "$Product" = "Macmini" ]]; then
+    Product='MM'
+fi
+if [[ "$Product" = "Appledevice" ]]; then
+    Product='VMac'
+fi
+if [[ "$Product" = "iMacPro" ]]; then
+    Product='iMP'
+fi
+
+#Switch menu
+Chto_delaem=''
+while [[ "$Chto_delaem" != "1" && "$Chto_delaem" != "2" && "$Chto_delaem" != "3" && "$Chto_delaem" != "4" ]]; do
+    echo  "!!!!!!!!!! Chto_delaem? !!!!!!!!!!!!!!"
+    echo  "Polzovatel v domene:    1"
+    echo  "Polzovatel ne v domene: 2"
+    echo  "Warehouse:              3"
+    echo  "BuildMashine:           4"
+    read Chto_delaem
+done
+
+ad_settings=''
+while [[ "$ad_settings"  != "1" && "$ad_settings" != "2" && "$ad_settings" != "3" ]]; do
+    echo  "!!!!!!!!!! Company switch menu !!!!!!!!!!"
+    echo  "Company name:"
+    echo  "alpari.by        1"
+    echo  "freeplay.loc     2"
+    echo  "primetech.minsk  3"
+    read ad_settings
+    if [[ "$ad_settings"  != "1" && "$ad_settings" != "2" && "$ad_settings" != "3" ]]; then
+        echo "Error! value"
+        echo "Make a choice!"
+    fi
+done
+if [[ "$ad_settings" = "1" ]]; then
+       ad_settings='alpari.by'
+fi
+if [[ "$ad_settings" = "2" ]]; then
+       ad_settings='freeplay.loc'
+fi
+if [[ "$ad_settings" = "3" ]]; then
+       ad_settings='primetech.minsk'
+fi
+
+#Switch name Computer
+if [[ "$Chto_delaem" = "1" || "$Chto_delaem" = "2" ]]; then
+    legacy_name=''
+    while [[ "$legacy_name" != 'y' && "$legacy_name" != 'n' ]]; do
+        echo "!!!!!!!!!! Uchetnaia zapis soderjit imia y/n ? !!!!!!!!!!"
+        read legacy_name
+    done
+    if [[ "$legacy_name" = "y" ]]; then
+        Name=''
+        while [[ "$Name" = "" ]]; do
+          echo  "!!!!!!!!!! vvedite imia sotrydnika !!!!!!!!!!"
+          read Name
+          if [[ -n "$Name" ]]; then
+            Uchetka=$Name
+          fi
+        Surname=''
+        while [[ "$Surname" = "" ]]; do
+          echo  "!!!!!!!!!! vvedite familiu sotrydnika !!!!!!!!!!"
+          read Surname
+          if [[ -n "$Surname" ]]; then
+            Uchetka=$Name.$Surname
+          fi
+        done
+    done
+    fi
+    if [[ "$legacy_name" = "n" ]]; then
+      Surname=''
+      while [[ "$Surname" = "" ]]; do
+        echo  "!!!!!!!!!! vvedite imia uchetki !!!!!!!!!!"
+        read Surname
+        if [[ -n "$Surname" ]]; then
+            Uchetka=${Surname}
+        fi
+      done
+    fi
+    ComputerName=''$Product'-'$Surname''
+    HostName=''$Product'-'$SerialNumber''.${ad_settings}''
+    LocalHostName=''$Product'-'$SerialNumber''
+fi
+if [[ "$Chto_delaem" = "3" ]]; then
+    ComputerName=''$Product'-'$SerialNumber''.${ad_settings}''
+    HostName=''$Product'-'$SerialNumber''.${ad_settings}''
+    LocalHostName=''$Product'-'$SerialNumber''
+fi
+if [[ "$Chto_delaem" = "4" ]]; then
+    BuilderData=''
+    while [[ "$BuilderData" = "" ]]; do
+        echo "Please enter the required data in lowercase: <number>-<short_company_name>-<country_code>"
+        read BuilderData
+    done
+    ComputerName='MSLAVE-'$BuilderData''
+    HostName='MSLAVE-'$BuilderData''
+    LocalHostName='MSLAVE-'$BuilderData''
+
+fi
+
+#Rename computer
+sudo scutil --set ComputerName ${ComputerName}
+sudo scutil --set HostName ${HostName}
+sudo scutil --set LocalHostName ${LocalHostName}
+
+#Add to AD
+if [[ "$Chto_delaem" = "1" || "$Chto_delaem" = "3" ]]; then
+    proverka_ad=$(dsconfigad -show)
+    if [[ "$proverka_ad" = '' ]]; then
+      proverka_vvoda_v_AD=''
+      while [[ "$proverka_vvoda_v_AD" != "Settings changed successfully" ]]; do
+        #Обновление времени
+        if [[ "$os_ver" == 10.15.* || "$os_ver" == 11.* || "$os_ver" == 12.* || "$os_ver" == 13.* ]] ; then
+            sudo touch /var/db/ntp-kod
+            sudo chmod 666 /var/db/ntp-kod
+            sudo sntp -sS ADC-02-bp-by.alpari.by
+        elif [[ "$os_ver" == 10.13.* ]] ; then
+            sudo ntpdate -u ADC-02-bp-by.alpari.by
+            else
+            sudo ntpdate -u ADC-02-bp-by.alpari.by
+        fi
+        Domen_admin=''
+        while [[ "$Domen_admin" = "" ]]; do
+          echo  "!!!!!!!!!!!!!!!!!!!! Vvod v AD !!!!!!!!!!!!!!!!!!!!!!!!"
+          echo  "!!!!!!!!!! vvedite imia uchetki domen_admina !!!!!!!!!!"
+          read Domen_admin
+          if [[ -n "$Domen_admin" ]]; then
+            proverka_vvoda_v_AD=$(sudo dsconfigad -add ${ad_settings} -username ${Domen_admin} -localhome enable -mobile enable -mobileconfirm disable -useuncpath enable -groups "Администраторы домена,Администраторы предприятия" -alldomains enable -force)
+            break
+          fi
+        done
+        echo "$proverka_vvoda_v_AD"
+        if [[ "$proverka_vvoda_v_AD" != "Settings changed successfully" ]]; then
+          echo "Dannie ne Vernie"
+        fi
+      done
+    else
+      echo '!!!!!!! Computer in AD !!!!!!!'
+    fi
+    if [[ "$Chto_delaem" = "1" ]]; then
+        sudo dseditgroup -o create com.apple.loginwindow.netaccounts
+        sudo dseditgroup -o create com.apple.access_loginwindow                
+        sudo dseditgroup -o edit -n /Local/Default -a "Администраторы предприятия" -t group com.apple.loginwindow.netaccounts
+        sudo dseditgroup -o edit -n /Local/Default -a "Администраторы домена" -t group com.apple.loginwindow.netaccounts
+        # sudo dseditgroup -o edit -n /Local/Default -a "HelpDesk" -t group com.apple.loginwindow.netaccounts
+        sudo dseditgroup -o edit -n /Local/Default -a ${Uchetka} -t user com.apple.loginwindow.netaccounts
+        sudo dseditgroup -o edit -n /Local/Default -a com.apple.loginwindow.netaccounts -t group com.apple.access_loginwindow
+        sudo dseditgroup -o edit -n /Local/Default -a localaccounts -t group com.apple.access_loginwindow
+        sudo dseditgroup -o edit -n /Local/Default -a ${Uchetka} -t user admin
+
+#   Admin rings
+#        while [[ "$Admin_acces" != "y" && "$Admin_acces" != "n" ]]; do
+#           echo "!!!!!!!!!!!!! ${Uchetka} nnado admin ?  y/n !!!!!!!!!!!!"
+#           read Admin_acces
+#           if [[ "$Admin_acces" = "y" ]]; then
+#            sudo dseditgroup -o edit -n /Local/Default -a ${Uchetka} -t user admin 
+#            break
+#           fi
+#           if [[ "$Admin_acces" = "n" ]]; then
+#            break
+#           fi           
+#        done
+    fi
+fi
+
+if [[ "$Chto_delaem" = "2" ]]; then
+    sudo sysadminctl -addUser ${Uchetka} -fullName ${Uchetka} -password FAQ00ssd -admin #Add local User
+    dseditgroup -o edit -a ${Uchetka} -t user admin
+fi
+
+#Enable ssh
+sudo dseditgroup -o create -q com.apple.access_ssh
+sudo dseditgroup -o edit -a admin -t user com.apple.access_ssh
+sudo dseditgroup -o edit -a admin -t group com.apple.access_ssh
+sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -allowAccessFor -specifiedUsers #VNC enable
+sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -access -on -privs -all -users admin
+
+if [[ "$Chto_delaem" = "1" || "$Chto_delaem" = "2" || "$Chto_delaem" = "3" ]]; then #Delete Admin groups from ssh
+    sudo dseditgroup -o edit -d admin -t group com.apple.access_ssh
+fi
+
+sudo systemsetup -f -setremotelogin on #Включить SSH
+
+#Enable root
+proverka_root1=$(sudo dscl . -read /Users/root Password)
+if [[ $proverka_root1 != "Password: ********" ]]; then
+    echo '!!!!!!!!!! Enable ROOT !!!!!!!!!!!'
+    proverka_root=''
+    while [[ "$proverka_root" != "dsenableroot:: ***Successfully enabled root user." ]]; do
+        echo "!!!!!!! username = admin !!!!!!!!!"
+        proverka_root=$(dsenableroot -u admin | grep "dsenableroot::")
+        echo ${proverka_root}
+    done
+fi
+
+#Enable switch user menu
+sudo defaults write /Library/Preferences/.GlobalPreferences MultipleSessionEnabled -bool 'YES'
+
+#Photo admin user
+sudo dscl . delete /Users/admin jpegphoto
+sudo dscl . -create /Users/admin Picture '/Library/User Pictures/Animals/Owl.tif'
+
+#Install App
+if [[ "$Chto_delaem" = "1" || "$Chto_delaem" = "2" || "$Chto_delaem" = "3" ]]; then
+    Install_Xcode=''
+    while [[ "$Install_Xcode" != "y" && "$Install_Xcode" != "n" ]]; do
+        echo  "!!!!!!!!!! Install_Xcode ? y/n !!!!!!!!!!"
+        read Install_Xcode
+        if [[ "$Install_Xcode" = "y" ]]; then
+            Xcode_version=''
+            while [[ "$Xcode_version"  != "1" && "$Xcode_version" != "2" && "$Xcode_version" != "3" ]]; do
+                echo "!!!!!!!!!! Kakuy Versiu isvolite ? !!!!!!!!!!!!!!"
+                echo  "Xcode_12.4:    1"
+                echo  "Xcode_13.4.1:    2"
+                echo  "Xcode_14.2:    3"
+                read Xcode_version
+            done
+            if [[ "$Xcode_version" = "1" ]]; then
+               Xcode_version='Xcode_12.4'
+            fi
+            if [[ "$Xcode_version" = "2" ]]; then
+               Xcode_version='Xcode_13.4.1'
+            fi
+            if [[ "$Xcode_version" = "3" ]]; then
+               Xcode_version='Xcode_14.2'
+            fi
+            if [[ "$uname_machine" == "arm64" ]]; then
+                # On ARM macOS, this script installs by Install_app_to_user_host_M1
+                curl -u ${jenkins_token} "https://jenkins.bpmobile.org/job/Admins%20integretions/job/Ansible-script/job/Public/job/Install_app_for_user_host_M1/buildWithParameters?token=$jenkins_job_token&Xcode_version=$Xcode_version&IP_host=$ip_addr"
+            else
+                # On Intel macOS, this script installs by Install_app_to_user_host
+                curl -u ${jenkins_token} "https://jenkins.bpmobile.org/job/Admins%20integretions/job/Ansible-script/job/Public/job/Install_app_for_user_host/buildWithParameters?token=$jenkins_job_token&Xcode_version=$Xcode_version&IP_host=$ip_addr"
+            fi
+        fi
+        if [[ "$Install_Xcode" = "n" ]]; then
+            if [[ "$uname_machine" == "arm64" ]]; then
+                # On ARM macOS, this script installs by Install_app_to_user_host_M1
+                curl -u ${jenkins_token} "https://jenkins.bpmobile.org/job/Admins%20integretions/job/Ansible-script/job/Public/job/Install_app_for_user_host_M1/buildWithParameters?token=$jenkins_job_token&Xcode_version=Without_Xcode&IP_host=$ip_addr"
+            else
+                # On Intel macOS, this script installs by Install_app_to_user_host
+                curl -u ${jenkins_token} "https://jenkins.bpmobile.org/job/Admins%20integretions/job/Ansible-script/job/Public/job/Install_app_for_user_host/buildWithParameters?token=$jenkins_job_token&Xcode_version=Without_Xcode&IP_host=$ip_addr"
+            fi
+        fi
+    done
+fi
+
+if [[ "$Chto_delaem" = "4" ]]; then
+    Xcode_version='Xcode_14.2'
+    if [[ "$uname_machine" == "arm64" ]]; then
+        # On ARM macOS, this script installs by Configure_Slave_M1
+        curl -u ${jenkins_token} "https://jenkins.bpmobile.org/job/Admins%20integretions/job/Ansible-script/job/Public/job/Configure_Slave_M1/buildWithParameters?token=$jenkins_job_token&Xcode_version=$Xcode_version&IP_host=$ip_addr"
+    else
+        # On Intel macOS, this script installs by Configure_Slave
+        curl -u ${jenkins_token} "https://jenkins.bpmobile.org/job/Admins%20integretions/job/Ansible-script/job/Public/job/Configure_Slave/buildWithParameters?token=$jenkins_job_token&Xcode_version=$Xcode_version&IP_host=$ip_addr"
+    fi
+fi
+
+#Validator
+echo '!!!!!!!!!! Validator !!!!!!!!!!!'
+system_profiler SPHardwareDataType | grep Serial | awk  '{print $1$2$3$4}'
+echo "ComputerName: $(scutil --get ComputerName)"
+echo "HostName: $(scutil --get HostName)"
+echo "LocalHostName: $(scutil --get LocalHostName)"
+sudo systemsetup -getremotelogin
+echo "polzovateli ssh: $(dscl . -read /Groups/com.apple.access_ssh GroupMembership | sed -e 's/GroupMembership://')"
+echo "Administratori computera : $(dscl . -read /Groups/admin GroupMembership | sed -e 's/GroupMembership://')"
+
+sleep 2
+echo "!!!!!!!!!!! Vi krasavcheg !!!!!!!!!!!!!!"
