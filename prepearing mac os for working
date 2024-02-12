@@ -200,7 +200,7 @@ if [[ "$Chto_delaem" = "1" || "$Chto_delaem" = "3" ]]; then
 fi
 
 if [[ "$Chto_delaem" = "2" ]]; then
-    sudo sysadminctl -addUser ${Uchetka} -fullName ${Uchetka} -password FAQ00ssd -admin #Add local User
+    sudo sysadminctl -addUser ${Uchetka} -fullName ${Uchetka} -password "pass" -admin #Add local User
     dseditgroup -o edit -a ${Uchetka} -t user admin
 fi
 
