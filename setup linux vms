@@ -134,7 +134,7 @@
     ufw:
       state: enabled
   - name: Install Docker
-    shell: curl -fsSL https://git.bpmobile.org/public-repos/Public_Scripts/-/raw/master/install_docker.sh | sudo sh -
+    shell: curl -fsSL #..install_docker.sh | sudo sh -
     when: Docker_Install|bool
   - name: Password expired
     shell: passwd --expire admin-root
