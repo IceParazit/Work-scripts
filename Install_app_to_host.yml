@@ -1,0 +1,75 @@
+---
+- hosts: all
+  become_method: sudo
+  environment:
+   PATH: /usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+  remote_user: admin
+  vars:
+    homebrew_installed_packages:
+      - wget
+      - htop
+      - tree
+      - bash-completion
+      - gnu-tar
+#    homebrew_taps: -- -- требуется для привязки сторонних репозиториев (репозитории по умолчанию homebrew/cask и homebrew/core)
+#      - homebrew/cask
+    homebrew_cask_apps:
+      - slack
+      - google-chrome
+    homebrew_cask_accept_external_apps: true
+    homebrew_cask_appdir: /Applications
+    download_dir: '/tmp/'
+  roles:
+    - geerlingguy.mac.homebrew
+  pre_tasks:
+    - name: Disable sleep mode
+      shell: pmset -a sleep 0; pmset -a hibernatemode 0
+      become: yes
+    - name: check CommandLineTools install
+      stat: path=/Library/Developer/CommandLineTools
+      register: CommandLineTools_install
+    - name: Determine Homebrew ownership variables
+      set_fact:
+        homebrew_user: '{{ homebrew_user | default(ansible_user_id) }}'
+    - name: Install CommandLineTools
+      script: 'files/CommandLineToolsInstall.sh'
+      become: yes
+    - name: Brew for everyone admin user
+      shell: chown -R admin:admin /usr/local/* | chmod -R g+w /usr/local/*
+      become: yes
+      ignore_errors: yes
+    - name: Update Host
+      shell: softwareupdate -ia
+    - name: Reboot system
+      reboot:
+        reboot_timeout: 3600
+      become: yes
+      when: CommandLineTools_install.stat.exists == False
+  tasks:
+    - name: Detect User
+      shell: dseditgroup -o read com.apple.loginwindow.netaccounts | sed -n "/dsAttrTypeStandard:GroupMembership/,/dsAttrTypeStandard:RealName/p" | sed '/dsAttrTypeStandard:GroupMembership/d' | sed '/dsAttrTypeStandard:RealName/d' | sed '/alexander.karchevsky/d' | awk '{print $1}'
+      register: User_name
+    - debug: msg='{{ User_name }}'
+    - name: Brew for everyone admin user
+      shell: chown -R admin:admin /usr/local/* | chmod -R g+w /usr/local/*
+      become: yes
+    - name: Brew cask packet permission
+      shell: cd /Applications/ && sudo chown -R root:wheel 'Google Chrome.app' 'Slack.app'
+      become: yes
+    - name: Add avtostart ssh from host
+      cron:
+        name: "Job for reboot"
+        special_time: reboot
+        job: "/usr/sbin/systemsetup -f -setremotelogin on"
+      become: yes
+    - name: Update host
+      shell: "softwareupdate -ia"
+    - name: Restore default sleep mode
+      shell: pmset restoredefaults
+      become: yes
+    - name: restart system to reboot
+      reboot:
+        reboot_timeout: 3600
+      become: yes
+
+# ссылка на роль geerlingguy.mac.homebrew https://github.com/geerlingguy/ansible-collection-mac
